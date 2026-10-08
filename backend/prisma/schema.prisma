@@ -1,0 +1,91 @@
+// Mohalla Signal - Prisma Schema
+// PostgreSQL is the single source of truth for persistent application data
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User Roles for Server-Side Authorization (RBAC)
+enum Role {
+  CUSTOMER
+  MERCHANT
+  SUPPLIER
+  ADMIN
+}
+
+// Demand Signal Status (for future demand signal modules)
+enum SignalStatus {
+  COLLECTING       // Below merchant privacy threshold
+  ACTIVE           // 3+ distinct merchants; neighborhood signal visible
+  QUOTE_REQUESTED  // RFQ dispatched to suppliers
+  QUOTED           // Suppliers have provided quotes
+  COMPLETED        // Restocked or closed
+  EXPIRED          // Timed out without meeting threshold
+}
+
+// Core Application User (Authenticated via Firebase Auth)
+model User {
+  id           String    @id @default(uuid())
+  firebaseUid  String    @unique
+  email        String?
+  phoneNumber  String?
+  displayName  String?
+  role         Role      @default(CUSTOMER)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Role-specific Profiles
+  customerProfile CustomerProfile?
+  merchantProfile MerchantProfile?
+  supplierProfile SupplierProfile?
+
+  @@index([firebaseUid])
+  @@index([role])
+}
+
+// Customer Profile
+model CustomerProfile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address   String?
+  pincode   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Merchant Profile (Kirana / Local Retail Merchant)
+model MerchantProfile {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopName     String
+  storeAddress String
+  pincode      String
+  latitude     Float?
+  longitude    Float?
+  isVerified   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([pincode])
+}
+
+// Supplier Profile (Distributor / Wholesaler)
+model SupplierProfile {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyName         String
+  contactPerson       String?
+  serviceAreaPincodes String[]
+  isVerified          Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
