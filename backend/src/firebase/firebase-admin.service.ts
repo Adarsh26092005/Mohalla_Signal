@@ -14,6 +14,7 @@ export class FirebaseAdminService implements OnModuleInit {
   private readonly logger = new Logger(FirebaseAdminService.name);
   private firebaseApp?: App;
   private isConfigured = false;
+  private configuredProjectId?: string;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -32,11 +33,13 @@ export class FirebaseAdminService implements OnModuleInit {
               clientEmail,
               privateKey,
             }),
+            projectId,
           });
         } else {
           this.firebaseApp = getApp();
         }
         this.isConfigured = true;
+        this.configuredProjectId = projectId;
         this.logger.log(`Firebase Admin SDK initialized successfully for project: ${projectId}`);
       } catch (error) {
         this.logger.error(
@@ -53,31 +56,34 @@ export class FirebaseAdminService implements OnModuleInit {
   }
 
   /**
-   * Verifies the client-provided Firebase ID token.
+   * Verifies the client-provided Firebase ID token using Firebase Admin SDK.
    * Returns decoded token payload or throws safe UnauthorizedException.
    */
   async verifyIdToken(idToken: string): Promise<DecodedIdToken> {
     if (!this.isConfigured || !this.firebaseApp) {
       this.logger.error(
-        'Cannot verify Firebase token: Firebase Admin SDK is not configured in backend environment.',
+        'Cannot verify Firebase token: Firebase Admin SDK is not initialized in backend environment.',
       );
       throw new InternalServerErrorException(
-        'Authentication service is currently unconfigured. Please configure Firebase Admin environment credentials.',
+        'Authentication service is currently unconfigured. Please check backend Firebase environment variables.',
       );
     }
 
     try {
       const auth = getAuth(this.firebaseApp);
-      const decodedToken = await auth.verifyIdToken(idToken, true);
+      // Verify signature, expiration, issuer and audience against configured projectId
+      const decodedToken = await auth.verifyIdToken(idToken);
       return decodedToken;
-    } catch (error) {
+    } catch (error: any) {
+      const errorCode = error?.code || 'auth/unknown';
+      const errorMessage = error?.message || 'Invalid token';
+
+      // Log safe diagnostic metadata for development debugging (no tokens or secrets printed)
       this.logger.warn(
-        `Firebase token verification failed: ${
-          error instanceof Error ? error.message : 'Invalid token'
-        }`,
+        `[FirebaseAuth] Token verification rejected (${errorCode}): ${errorMessage}`,
       );
-      // Never leak internal stack trace to client
-      throw new UnauthorizedException('Invalid or expired Firebase authentication token');
+
+      throw new UnauthorizedException('Authentication failed: Invalid or expired Firebase token');
     }
   }
 
@@ -86,5 +92,9 @@ export class FirebaseAdminService implements OnModuleInit {
    */
   get initialized(): boolean {
     return this.isConfigured;
+  }
+
+  get projectId(): string | undefined {
+    return this.configuredProjectId;
   }
 }

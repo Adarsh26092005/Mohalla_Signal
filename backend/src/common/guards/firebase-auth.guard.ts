@@ -21,25 +21,38 @@ export class FirebaseAuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const authHeader = request.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!authHeader) {
+      this.logger.warn('[FirebaseAuthGuard] Request missing Authorization header');
       throw new UnauthorizedException(
-        'Missing or malformed Authorization header. Expected Bearer <Firebase_ID_Token>',
+        'Missing Authorization header. Expected: Bearer <Firebase_ID_Token>',
       );
     }
 
-    const token = authHeader.split('Bearer ')[1]?.trim();
+    // Support case-insensitive Bearer prefix and arbitrary whitespace
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (!match || !match[1]) {
+      this.logger.warn('[FirebaseAuthGuard] Malformed Authorization header format');
+      throw new UnauthorizedException(
+        'Malformed Authorization header. Format must be Bearer <Firebase_ID_Token>',
+      );
+    }
+
+    // Clean any surrounding quotes or trailing whitespace
+    const token = match[1].trim().replace(/^["']|["']$/g, '');
     if (!token) {
+      this.logger.warn('[FirebaseAuthGuard] Empty token string provided after Bearer prefix');
       throw new UnauthorizedException('Empty Bearer authentication token provided');
     }
 
     try {
-      // 1. Verify cryptographic validity of Firebase ID token
+      // 1. Verify cryptographic validity of Firebase ID token using Firebase Admin SDK
       const decodedToken = await this.firebaseAdminService.verifyIdToken(token);
 
       // 2. Synchronize / retrieve corresponding application user from PostgreSQL
       const appUser = await this.usersService.findOrCreateFromFirebase(decodedToken);
 
       if (!appUser.isActive) {
+        this.logger.warn(`[FirebaseAuthGuard] Access denied: Deactivated user (ID: ${appUser.id})`);
         throw new UnauthorizedException('User account has been deactivated');
       }
 
@@ -53,8 +66,8 @@ export class FirebaseAuthGuard implements CanActivate {
         throw error;
       }
       this.logger.warn(
-        `Authentication guard rejected request: ${
-          error instanceof Error ? error.message : 'Unknown authentication error'
+        `[FirebaseAuthGuard] Guard rejection: ${
+          error instanceof Error ? error.message : 'Authentication failed'
         }`,
       );
       throw new UnauthorizedException('Authentication failed: Invalid or expired Firebase token');
