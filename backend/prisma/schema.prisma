@@ -62,30 +62,229 @@ model CustomerProfile {
 
 // Merchant Profile (Kirana / Local Retail Merchant)
 model MerchantProfile {
-  id           String   @id @default(uuid())
-  userId       String   @unique
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  shopName     String
-  storeAddress String
-  pincode      String
-  latitude     Float?
-  longitude    Float?
-  isVerified   Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             String         @id @default(uuid())
+  userId         String         @unique
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopName       String
+  storeAddress   String
+  pincode        String
+  latitude       Float?
+  longitude      Float?
+  isVerified     Boolean        @default(false)
+  neighborhoodId String?
+  neighborhood   Neighborhood?  @relation(fields: [neighborhoodId], references: [id], onDelete: SetNull)
+  missedDemands  MissedDemand[]
+  quoteRequests  QuoteRequest[]
+  purchaseDecisions PurchaseDecision[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   @@index([pincode])
+  @@index([neighborhoodId])
 }
 
 // Supplier Profile (Distributor / Wholesaler)
 model SupplierProfile {
-  id                  String   @id @default(uuid())
-  userId              String   @unique
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                  String         @id @default(uuid())
+  userId              String         @unique
+  user                User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   companyName         String
   contactPerson       String?
   serviceAreaPincodes String[]
-  isVerified          Boolean  @default(false)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  isVerified          Boolean        @default(false)
+  quotes              SupplierQuote[]
+  targetedRequests    QuoteRequest[]
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 }
+
+// ==========================================
+// Phase 3: Product Catalog & Alias Models
+// ==========================================
+
+// Product Category (e.g. Flours & Grains, Dairy & Beverages, Spices)
+model Category {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([slug])
+}
+
+// Canonical Product
+model Product {
+  id             String         @id @default(uuid())
+  name           String
+  normalizedName String
+  description    String?
+  imageUrl       String?
+  categoryId     String
+  category       Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  isActive       Boolean        @default(true)
+  aliases        ProductAlias[]
+  missedDemands  MissedDemand[]
+  quoteRequests  QuoteRequest[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([normalizedName])
+  @@index([categoryId])
+  @@index([isActive])
+}
+
+// Product Aliases for Deterministic Demand Matching (e.g. "ragi atta", "finger millet flour" -> "Ragi Flour")
+model ProductAlias {
+  id              String   @id @default(uuid())
+  alias           String
+  normalizedAlias String
+  productId       String
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([productId, normalizedAlias])
+  @@index([normalizedAlias])
+}
+
+// ====================================================================
+// Phase 4: Neighborhood & Privacy-Thresholded Missed Demand Models
+// ====================================================================
+
+// Neighborhood cluster for localized demand aggregation
+model Neighborhood {
+  id            String            @id @default(uuid())
+  name          String
+  slug          String            @unique
+  city          String
+  pincode       String
+  merchants     MerchantProfile[]
+  missedDemands MissedDemand[]
+  quoteRequests QuoteRequest[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([pincode])
+  @@index([slug])
+}
+
+// Missed Demand (Captured unstocked customer demand from merchants)
+model MissedDemand {
+  id              String          @id @default(uuid())
+  merchantId      String
+  merchant        MerchantProfile @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  neighborhoodId  String
+  neighborhood    Neighborhood    @relation(fields: [neighborhoodId], references: [id], onDelete: Restrict)
+  rawQuery        String
+  normalizedQuery String
+  notes           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([merchantId])
+  @@index([productId])
+  @@index([neighborhoodId])
+  @@index([createdAt])
+}
+
+// ====================================================================
+// Phase 5: Supplier Quotes & Merchant Purchase Decision Models
+// ====================================================================
+
+// Supplier Quote Request Status
+enum QuoteRequestStatus {
+  OPEN
+  QUOTED
+  CLOSED
+  CANCELLED
+}
+
+// Supplier Quote Status
+enum QuoteStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+// Merchant Purchase Decision Choice
+enum PurchaseDecisionChoice {
+  BUY
+  DONT_BUY
+}
+
+// Quote Request initiated by a merchant for an eligible neighborhood demand signal
+model QuoteRequest {
+  id                String             @id @default(uuid())
+  merchantId        String
+  merchant          MerchantProfile    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  productId         String
+  product           Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  neighborhoodId    String
+  neighborhood      Neighborhood       @relation(fields: [neighborhoodId], references: [id], onDelete: Restrict)
+  targetSupplierId  String?
+  targetSupplier    SupplierProfile?   @relation(fields: [targetSupplierId], references: [id], onDelete: SetNull)
+  requestedQuantity Int
+  status            QuoteRequestStatus @default(OPEN)
+  notes             String?
+  expiresAt         DateTime?
+  quotes            SupplierQuote[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([merchantId])
+  @@index([productId])
+  @@index([neighborhoodId])
+  @@index([targetSupplierId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Supplier Quote Response submitted by a supplier for a QuoteRequest
+model SupplierQuote {
+  id                    String             @id @default(uuid())
+  quoteRequestId        String
+  quoteRequest          QuoteRequest       @relation(fields: [quoteRequestId], references: [id], onDelete: Cascade)
+  supplierId            String
+  supplier              SupplierProfile    @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  unitPrice             Decimal            @db.Decimal(12, 2)
+  availableQuantity     Int
+  estimatedDeliveryTime String
+  validUntil            DateTime
+  notes                 String?
+  status                QuoteStatus        @default(PENDING)
+  purchaseDecisions     PurchaseDecision[]
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@unique([quoteRequestId, supplierId])
+  @@index([quoteRequestId])
+  @@index([supplierId])
+  @@index([status])
+  @@index([validUntil])
+}
+
+// Merchant Purchase Decision for a SupplierQuote (BUY / DONT_BUY)
+model PurchaseDecision {
+  id           String                 @id @default(uuid())
+  quoteId      String
+  quote        SupplierQuote          @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  merchantId   String
+  merchant     MerchantProfile        @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  decision     PurchaseDecisionChoice
+  notes        String?
+  decisionDate DateTime               @default(now())
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  @@unique([quoteId, merchantId])
+  @@index([quoteId])
+  @@index([merchantId])
+  @@index([decision])
+}
+

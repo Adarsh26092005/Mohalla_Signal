@@ -27,6 +27,9 @@ export default () => ({
   demand: {
     merchantThreshold: parseInt(process.env.DEMAND_MERCHANT_THRESHOLD || '3', 10),
   },
+  quotes: {
+    requestExpiryDays: parseInt(process.env.QUOTES_REQUEST_EXPIRY_DAYS || '7', 10),
+  },
   throttle: {
     ttl: parseInt(process.env.THROTTLE_TTL || '60', 10),
     limit: parseInt(process.env.THROTTLE_LIMIT || '100', 10),

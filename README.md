@@ -19,7 +19,7 @@ When a customer walks into a local merchant asking for an unstocked product (e.g
 ## 3. The Core Solution
 Mohalla Signal bridges this gap:
 1. **Quick Demand Capture**: Merchants log missed requests in seconds via quick UI or speech-to-text.
-2. **Product Normalization**: Aliases (e.g., *"ragi atta"*, *"finger millet flour"*) map deterministically to standardized catalog items.
+2. **Product Normalization**: Aliases (e.g., *"ragi atta"*, *"finger millet flour"*, *"nachni flour"*) map deterministically to standardized catalog items.
 3. **Privacy-Preserving Aggregation**: Demand is combined across geographic clusters ($\ge 3$ distinct merchants required before broadcasting a signal).
 4. **Actionable Signals**: Merchants see neighborhood demand volume without seeing competitor identities.
 5. **Supplier RFQ & Decision**: Merchants review supplier quotes and make an independent **BUY** or **DON'T BUY** decision.
@@ -40,7 +40,7 @@ NestJS Backend API
         ↓ Verifies token via Firebase Admin SDK
 Synchronize / Find Application User (PostgreSQL via Prisma)
         ↓ Check Role & Policies (RolesGuard)
-Protected Resource Access (GET /api/v1/users/me)
+Protected Resource Access (POST /api/v1/demand/missed)
 ```
 
 - **Authentication Source**: Firebase Authentication handles identity, passwords, and token issuance.
@@ -56,7 +56,7 @@ Protected Resource Access (GET /api/v1/users/me)
 | **Authentication** | Firebase Authentication + Firebase Admin SDK | Client authentication and server-side token verification |
 | **Web Frontend** | React 18, TypeScript, Vite, Vanilla CSS | Fast, accessible merchant & customer portal |
 | **Backend API** | NestJS, TypeScript, Swagger / OpenAPI | Modular REST API, DTO validation, RBAC |
-| **Database** | PostgreSQL + Prisma ORM | Persistent source of truth, user & profile models |
+| **Database** | PostgreSQL + Prisma ORM | Persistent source of truth: Users, Neighborhoods, Products, MissedDemand |
 | **Async & Cache**| Redis + BullMQ | Background aggregation jobs, rate limiting, and queues |
 | **Real-time** | Socket.IO | Real-time demand signal notifications and dashboard feeds |
 | **Mobile** | Flutter *(Scheduled for future phase)* | Native mobile client consuming backend APIs |
@@ -68,7 +68,9 @@ Protected Resource Access (GET /api/v1/users/me)
 ```
 Mohalla_Signal/
 ├── backend/                  # NestJS modular API service
-│   ├── prisma/               # Prisma database schema (User, Profiles)
+│   ├── prisma/               # Prisma database schema & seed scripts
+│   │   ├── schema.prisma     # User, Profiles, Category, Product, ProductAlias, Neighborhood, MissedDemand
+│   │   └── seed.ts           # Idempotent catalog, aliases & neighborhood clusters seed dataset
 │   ├── src/
 │   │   ├── common/           # Global guards, filters, interceptors, decorators
 │   │   │   ├── decorators/   # @CurrentUser, @Roles
@@ -79,7 +81,9 @@ Mohalla_Signal/
 │   │   ├── firebase/         # Firebase Admin SDK initialization & token verification
 │   │   ├── modules/
 │   │   │   ├── health/       # Health check endpoint (/api/v1/health)
-│   │   │   └── users/        # User profile & onboarding (/api/v1/users/me, /api/v1/users/onboard)
+│   │   │   ├── users/        # User profile & onboarding (/api/v1/users/me, /api/v1/users/onboard)
+│   │   │   ├── products/     # Product catalog & deterministic matching engine (/api/v1/products/match)
+│   │   │   └── demand/       # Missed demand capture & privacy signals (/api/v1/demand/missed, /signals)
 │   │   ├── app.module.ts     # Root application module
 │   │   └── main.ts           # Entry point with Helmet, CORS, Swagger UI
 │   ├── .env.example          # Environment variable template
@@ -123,6 +127,7 @@ REDIS_HOST=localhost
 REDIS_PORT=6379
 
 # Privacy & Throttling Thresholds
+# Minimum distinct merchants required before a neighborhood demand signal becomes visible
 DEMAND_MERCHANT_THRESHOLD=3
 THROTTLE_TTL=60
 THROTTLE_LIMIT=100
@@ -130,24 +135,40 @@ THROTTLE_LIMIT=100
 
 ---
 
-## 8. Swagger Manual Testing Guide
+## 8. Database Migrations & Seeding
 
-1. Start the backend: `npm run start:dev` (in `backend/`).
-2. Open Swagger UI at: `http://localhost:4000/api/v1/docs`.
-3. In your client / Firebase console, obtain a valid Firebase ID Token for a test user.
-4. In Swagger UI, click the **Authorize 🔓** button at the top right.
-5. In the **Firebase-JWT (http, Bearer)** popup, paste your token in the **Value** field.
-6. Click **Authorize** then **Close**.
-7. Expand `GET /api/v1/users/me`, click **Try it out**, then **Execute**.
-8. Verify that the response returns HTTP 200 with your synchronized user profile.
+### 1. Apply Schema Migrations
+```bash
+cd backend
+npx prisma migrate dev --name init_phase4_demand_and_neighborhoods
+```
+
+### 2. Seed Default Product Catalog & Neighborhoods
+```bash
+cd backend
+npx prisma db seed
+# or: npm run prisma:seed
+```
 
 ---
 
-## 9. Planned Implementation Phases
+## 9. Swagger Manual Testing Guide
+
+1. Start the backend: `npm run start:dev` (in `backend/`).
+2. Open Swagger UI at: `http://localhost:4000/api/v1/docs`.
+3. In Swagger UI:
+   - **Authorize (Merchant Role)**: Click **Authorize 🔓**, paste your Firebase ID Token for a user onboarded as `MERCHANT`.
+   - **Capture Demand**: Call `POST /api/v1/demand/missed` with `{"query": "ragi atta"}`.
+   - **View Own Demand**: Call `GET /api/v1/demand/missed/mine`.
+   - **View Aggregated Signals**: Call `GET /api/v1/demand/signals` (public, requires $\ge 3$ distinct merchants to appear).
+
+---
+
+## 10. Planned Implementation Phases
 1. **Phase 1**: Project Initialization, Engineering Standards, Security Foundation & Architecture. *(Completed)*
-2. **Phase 2 (Current)**: Firebase Authentication, User Management, RBAC & Core Schema.
-3. **Phase 3**: Product Catalog, Normalization & Deterministic Alias Matching Service.
-4. **Phase 4**: Merchant Demand Capture (Voice & Text) + Privacy-Preserving Demand Aggregation (BullMQ + Redis).
+2. **Phase 2**: Firebase Authentication, User Management, RBAC & Core Schema. *(Completed)*
+3. **Phase 3**: Product Catalog, Normalization & Deterministic Alias Matching Service. *(Completed)*
+4. **Phase 4 (Current)**: Missed Demand Capture and Privacy-Thresholded Neighborhood Demand Aggregation. *(Completed)*
 5. **Phase 5**: Neighborhood Demand Signals & Supplier RFQ / Quote Workflow.
 6. **Phase 6**: Merchant Decision (BUY / DON'T BUY), Inventory & Customer Notification Flow.
 7. **Phase 7**: Customer Experience, Supporting Loyalty (Server-Calculated), Outcomes & Sales Tracking.

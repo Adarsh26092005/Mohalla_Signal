@@ -9,6 +9,9 @@ import { PrismaModule } from './prisma/prisma.module';
 import { FirebaseModule } from './firebase/firebase.module';
 import { HealthModule } from './modules/health/health.module';
 import { UsersModule } from './modules/users/users.module';
+import { ProductsModule } from './modules/products/products.module';
+import { DemandModule } from './modules/demand/demand.module';
+import { QuotesModule } from './modules/quotes/quotes.module';
 
 @Module({
   imports: [
@@ -49,6 +52,9 @@ import { UsersModule } from './modules/users/users.module';
     FirebaseModule,
     HealthModule,
     UsersModule,
+    ProductsModule,
+    DemandModule,
+    QuotesModule,
   ],
   providers: [
     {
